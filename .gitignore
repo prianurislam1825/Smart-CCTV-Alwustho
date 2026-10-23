@@ -1,0 +1,38 @@
+# Secrets & local configuration
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Personal / biometric data (face samples, embeddings, registry)
+data/
+
+# Downloaded models and weights
+models/
+*.pt
+*.onnx
+*.engine
+
+# Runtime artifacts
+cache/
+temp/
+logs/
+runs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

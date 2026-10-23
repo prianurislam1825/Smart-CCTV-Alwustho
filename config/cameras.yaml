@@ -1,0 +1,7 @@
+cameras:
+  - id: office_main
+    name: Ruang Kerja
+    enabled: true
+    source: rtsp
+    # URL RTSP dibaca dari environment, jangan simpan password di sini.
+    url_env: OFFICE_CAMERA_RTSP
