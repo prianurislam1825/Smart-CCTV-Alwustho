@@ -18,12 +18,13 @@ import cv2
 import torch
 from dotenv import load_dotenv
 from ultralytics import YOLO
+
 from src.capture.camera_manager import CameraManager
 
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
 MODEL_PATH = BASE_DIR / "models" / "yolo26n.pt"
@@ -32,6 +33,7 @@ ENV_PATH = BASE_DIR / ".env"
 IMAGE_SIZE = 640
 CONFIDENCE = 0.40
 RECONNECT_DELAY = 3.0
+DEVICE = 0
 
 
 def main():
@@ -51,8 +53,8 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA tidak tersedia.")
 
-    print("GPU:", torch.cuda.get_device_name(0))
-    print("Memuat model YOLO26n dengan ByteTrack...")
+    print("GPU:", torch.cuda.get_device_name(DEVICE))
+    print("Memuat YOLO dan ByteTrack...")
 
     model = YOLO(str(MODEL_PATH))
 
@@ -63,12 +65,12 @@ def main():
     )
     camera.start()
 
-    print("Tracking aktif. Tekan Q pada jendela video untuk keluar.")
+    print("Tracking aktif. Tekan Q untuk keluar.")
 
-    previous_time = time.perf_counter()
     fps = 0.0
     frame_counter = 0
     fps_start = time.perf_counter()
+    last_log = fps_start
 
     try:
         while True:
@@ -78,9 +80,11 @@ def main():
                 time.sleep(0.02)
                 continue
 
+            inference_start = time.perf_counter()
+
             results = model.track(
                 source=frame,
-                device=0,
+                device=DEVICE,
                 imgsz=IMAGE_SIZE,
                 classes=[0],
                 conf=CONFIDENCE,
@@ -89,60 +93,65 @@ def main():
                 verbose=False,
             )
 
-            result = results[0]
+            inference_ms = (
+                time.perf_counter() - inference_start
+            ) * 1000
 
-            # Gambar kotak tanpa label bawaan agar tidak bertumpuk.
+            result = results[0]
             annotated = result.plot(labels=False)
+
+            detected_count = (
+                len(result.boxes)
+                if result.boxes is not None
+                else 0
+            )
 
             tracked_count = 0
 
-            if result.boxes is not None and len(result.boxes) > 0:
+            if (
+                result.boxes is not None
+                and result.boxes.id is not None
+            ):
                 boxes = result.boxes.xyxy.cpu().tolist()
+                ids = result.boxes.id.int().cpu().tolist()
+                confidences = result.boxes.conf.cpu().tolist()
 
-                if result.boxes.id is not None:
-                    ids = result.boxes.id.int().cpu().tolist()
-                    confidences = (
-                        result.boxes.conf.cpu().tolist()
+                tracked_count = len(ids)
+
+                for box, track_id, confidence in zip(
+                    boxes, ids, confidences
+                ):
+                    x1, y1, x2, y2 = map(int, box)
+                    label = f"ID {track_id} | {confidence:.2f}"
+                    text_y = max(25, y1 - 10)
+
+                    (text_w, text_h), baseline = cv2.getTextSize(
+                        label,
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.65,
+                        2,
                     )
-                    tracked_count = len(ids)
 
-                    for box, track_id, confidence in zip(
-                        boxes, ids, confidences
-                    ):
-                        x1, y1, x2, y2 = map(int, box)
+                    top = max(0, text_y - text_h - baseline)
 
-                        label = f"ID {track_id} | {confidence:.2f}"
-                        text_y = max(25, y1 - 10)
+                    cv2.rectangle(
+                        annotated,
+                        (x1, top),
+                        (x1 + text_w, text_y + baseline),
+                        (255, 0, 0),
+                        -1,
+                    )
 
-                        # Latar label agar mudah dibaca.
-                        (text_w, text_h), baseline = (
-                            cv2.getTextSize(
-                                label,
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.65,
-                                2,
-                            )
-                        )
+                    cv2.putText(
+                        annotated,
+                        label,
+                        (x1, text_y),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.65,
+                        (255, 255, 255),
+                        2,
+                    )
 
-                        cv2.rectangle(
-                            annotated,
-                            (x1, max(0, text_y - text_h - baseline)),
-                            (x1 + text_w, text_y + baseline),
-                            (255, 0, 0),
-                            -1,
-                        )
-
-                        cv2.putText(
-                            annotated,
-                            label,
-                            (x1, text_y),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.65,
-                            (255, 255, 255),
-                            2,
-                        )
-
-            # FPS pemrosesan aplikasi secara perkiraan.
             frame_counter += 1
             now = time.perf_counter()
             elapsed = now - fps_start
@@ -152,50 +161,57 @@ def main():
                 frame_counter = 0
                 fps_start = now
 
-            # Panel informasi.
             cv2.rectangle(
                 annotated,
                 (10, 10),
-                (350, 100),
+                (440, 145),
                 (0, 0, 0),
                 -1,
             )
 
-            cv2.putText(
-                annotated,
+            lines = [
+                f"Detected people: {detected_count}",
                 f"Tracked people: {tracked_count}",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 255, 0),
-                2,
-            )
-
-            cv2.putText(
-                annotated,
                 f"Processing FPS: {fps:.1f}",
-                (20, 75),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 255, 0),
-                2,
-            )
+                f"Inference latency: {inference_ms:.1f} ms",
+            ]
+
+            for index, line in enumerate(lines):
+                cv2.putText(
+                    annotated,
+                    line,
+                    (20, 38 + index * 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.65,
+                    (0, 255, 0),
+                    2,
+                )
 
             cv2.imshow(
-                "Smart CCTV - Person Tracking",
+                "Smart CCTV - Multi Person Tracking",
                 annotated,
             )
+
+            if now - last_log >= 5.0:
+                logging.info(
+                    "detected=%d tracked=%d fps=%.1f latency=%.1fms",
+                    detected_count,
+                    tracked_count,
+                    fps,
+                    inference_ms,
+                )
+                last_log = now
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
     except KeyboardInterrupt:
-        logging.info("Program dihentikan dari keyboard.")
+        logging.info("Program dihentikan.")
 
     finally:
         camera.stop()
         cv2.destroyAllWindows()
-        print("Tracking CCTV dihentikan.")
+        print("Tracking dihentikan.")
 
 
 if __name__ == "__main__":
