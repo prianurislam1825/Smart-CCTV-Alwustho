@@ -1,11 +1,8 @@
-
 from __future__ import annotations
 
 import os
 import sys
-import json
 from pathlib import Path
-from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
@@ -15,7 +12,7 @@ if str(BASE_DIR) not in sys.path:
 import torch
 
 # Gunakan DLL CUDA/cuDNN yang tersedia dari PyTorch.
-_DLL_DIRECTORY = os.add_dll_directory(
+os.add_dll_directory(
     str(Path(torch.__file__).resolve().parent / "lib")
 )
 
@@ -23,15 +20,16 @@ import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
 
+from src.vision.registry import load_registry, save_registry_atomic
 
 SAMPLES_DIR = BASE_DIR / "data" / "face_samples"
 DATA_DIR = BASE_DIR / "data"
 REGISTRY_PATH = DATA_DIR / "face_registry.json"
 MODEL_ROOT = BASE_DIR / "models" / "insightface"
 
-# Ubah nilai ini sesuai identitas yang ingin didaftarkan.
+# Identitas resmi. Nama ini harus konsisten dengan config/greetings.json.
 PERSON_ID = "EMP001"
-PERSON_NAME = "Nanda Ari Wahyu Widagdo"
+PERSON_NAME = "Pria Nur Islam"
 
 
 def main():
@@ -52,32 +50,52 @@ def main():
             f"Tidak ada foto di folder: {SAMPLES_DIR}"
         )
 
+    existing = None
     if REGISTRY_PATH.exists():
-        with REGISTRY_PATH.open("r", encoding="utf-8") as file:
-            registry = json.load(file)
+        registry = load_registry(REGISTRY_PATH)
+        for person in registry["people"]:
+            if person.get("person_id") == PERSON_ID:
+                existing = person
     else:
         registry = {"people": []}
 
-    if any(
-        person.get("person_id") == PERSON_ID
-        for person in registry["people"]
-    ):
-        raise RuntimeError(
-            f"ID {PERSON_ID} sudah terdaftar. "
-            "Gunakan ID lain atau periksa registry terlebih dahulu."
-        )
+    # Jika ID sudah terdaftar, hanya nama yang diperbarui bila berbeda;
+    # embedding yang valid tidak pernah diganti tanpa registrasi ulang.
+    if existing is not None:
+        if existing.get("name") == PERSON_NAME:
+            print(f"ID {PERSON_ID} sudah terdaftar dengan nama yang sama.")
+            print("Tidak ada perubahan registry.")
+            return
+
+        old_name = existing.get("name")
+        existing["name"] = PERSON_NAME
+        save_registry_atomic(REGISTRY_PATH, registry)
+
+        print(f"Nama diperbarui: '{old_name}' -> '{PERSON_NAME}'.")
+        print(f"Embedding tetap utuh: {len(existing.get('embeddings', []))}")
+        return
 
     print("Memuat InsightFace buffalo_l...")
-    print("GPU:", torch.cuda.get_device_name(0))
+
+    # GPU hanya dianggap aktif jika CUDA benar-benar tersedia.
+    if torch.cuda.is_available():
+        print("GPU:", torch.cuda.get_device_name(0))
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        ctx_id = 0
+    else:
+        print("CUDA tidak tersedia; memakai CPU.")
+        providers = ["CPUExecutionProvider"]
+        ctx_id = -1
+
     print("Folder foto:", SAMPLES_DIR)
     print("Jumlah foto:", len(image_paths))
 
     face_app = FaceAnalysis(
         name="buffalo_l",
         root=str(MODEL_ROOT),
-        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        providers=providers,
     )
-    face_app.prepare(ctx_id=0, det_size=(640, 640))
+    face_app.prepare(ctx_id=ctx_id, det_size=(640, 640))
 
     embeddings = []
     failed_images = []
@@ -131,6 +149,8 @@ def main():
             "embedding valid. Periksa kualitas dan sudut foto."
         )
 
+    from datetime import datetime
+
     registry["people"].append({
         "person_id": PERSON_ID,
         "name": PERSON_NAME,
@@ -138,10 +158,7 @@ def main():
         "created_at": datetime.now().isoformat(timespec="seconds"),
     })
 
-    temp_path = REGISTRY_PATH.with_suffix(".tmp")
-    with temp_path.open("w", encoding="utf-8") as file:
-        json.dump(registry, file, ensure_ascii=False, indent=2)
-    temp_path.replace(REGISTRY_PATH)
+    save_registry_atomic(REGISTRY_PATH, registry)
 
     print("\nRegistrasi selesai.")
     print("ID:", PERSON_ID)

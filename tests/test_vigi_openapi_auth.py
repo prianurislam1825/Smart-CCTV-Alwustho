@@ -5,12 +5,19 @@ import hashlib
 import json
 import ssl
 import getpass
+import os
 import urllib.request
 import urllib.error
+from pathlib import Path
 
-IP = "192.168.20.152"
-USERNAME = "admin"
-BASE_URL = f"https://{IP}:20443"
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+load_dotenv(BASE_DIR / ".env")
+
+IP = os.getenv("VIGI_CAMERA_IP", "")
+USERNAME = os.getenv("VIGI_OPENAPI_USERNAME", "")
+BASE_URL = f"https://{IP}{os.getenv('VIGI_OPENAPI_PORT', ':20443')}"
 
 TLS_CONTEXT = ssl._create_unverified_context()
 

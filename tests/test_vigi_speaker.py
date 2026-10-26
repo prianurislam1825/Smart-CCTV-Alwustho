@@ -2,12 +2,19 @@
 import getpass
 import hashlib
 import json
+import os
 import re
 import secrets
 import socket
+from pathlib import Path
 
-CAMERA_IP = "192.168.20.152"
-CAMERA_PORT = 554
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+load_dotenv(BASE_DIR / ".env")
+
+CAMERA_IP = os.getenv("VIGI_CAMERA_IP", "")
+CAMERA_PORT = int(os.getenv("VIGI_RTSP_PORT", "554"))
 TIMEOUT = 5
 
 REQUEST_URI = f"rtsp://{CAMERA_IP}/multitrans"
@@ -169,6 +176,10 @@ def show_response(header, body):
 
 
 def main():
+    if not CAMERA_IP:
+        print("VIGI_CAMERA_IP belum diatur dalam file .env.")
+        return
+
     print("=== VIGI Stream Interface Diagnostic ===")
     print(f"Kamera: {CAMERA_IP}:{CAMERA_PORT}")
     print("Tidak mengirim audio atau mengubah konfigurasi kamera.")

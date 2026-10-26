@@ -1,0 +1,12 @@
+{
+  "defaults": {
+    "cooldown_seconds": 120
+  },
+  "people": {
+    "EMP001": {
+      "name": "Pria Nur Islam",
+      "greeting": "Selamat datang, Pria Nur Islam. Semoga aktivitas hari ini berjalan lancar.",
+      "cooldown_seconds": 120
+    }
+  }
+}
