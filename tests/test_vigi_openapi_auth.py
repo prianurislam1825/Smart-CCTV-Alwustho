@@ -8,7 +8,7 @@ import getpass
 import urllib.request
 import urllib.error
 
-IP = "192.168.20.97"
+IP = "192.168.20.152"
 USERNAME = "admin"
 BASE_URL = f"https://{IP}:20443"
 
